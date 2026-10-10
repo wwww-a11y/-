@@ -299,6 +299,33 @@ private static boolean blockforge$containerHasMatching(Container destination, It
      * 但修掉了原版在手里数量小于空位时把数量减成负数的写法，按实际移动量扣减。
      * 返回身上剩下的（箱子满了就是一整组原样返回）。
      */
+    /**
+ * 把身上的一整组物品放进目标箱子：先和同种堆叠合并，找不到就放进第一个空槽位。
+ * 返回身上剩下的（箱子满了就是一整组原样返回）。
+ */
+@Unique
+private static ItemStack blockforge$insertCargoStack(ItemStack cargo, Container destination) {
+    if (cargo.isEmpty()) {
+        return ItemStack.EMPTY;
+    }
+    ItemStack leftover = cargo.copy();
+    for (int i = 0; i < destination.getContainerSize() && !leftover.isEmpty(); i++) {
+        ItemStack slotStack = destination.getItem(i);
+        if (slotStack.isEmpty()) {
+            destination.setItem(i, leftover);
+            return ItemStack.EMPTY;
+        }
+        if (ItemStack.isSameItemSameComponents(leftover, slotStack)
+                && slotStack.getCount() < slotStack.getMaxStackSize()) {
+            int room = Math.min(slotStack.getMaxStackSize() - slotStack.getCount(),
+                    leftover.getCount());
+            slotStack.grow(room);
+            destination.setItem(i, slotStack);
+            leftover.shrink(room);
+        }
+    }
+    return leftover;
+}
 /**
  * 从源箱子里取"一整组"物品：从第一个非空槽位开始拿，
  * 并把同种（物品和组件都相同）的其余槽位并进来，直到达到该物品自身的堆叠上限。
