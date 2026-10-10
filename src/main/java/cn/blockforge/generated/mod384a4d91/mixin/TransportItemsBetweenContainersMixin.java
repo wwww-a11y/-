@@ -196,51 +196,72 @@ public abstract class TransportItemsBetweenContainersMixin {
     /**
      * 取货：替换原版"只拿第一个槽位、最多 16 个"的逻辑。
      * 依次给 5 个货槽各拿"一种"物品（同种物品跨槽位合并、拿满整组），
-     * 已拿过的物品类型不再重复拿，剩下的留给下一趟。
      */
-    @Inject(method = "pickUpItems", at = @At("HEAD"), cancellable = true)
-    private void blockforge$pickUpFiveKinds(PathfinderMob mob, Container source, CallbackInfo ci) {
-        ci.cancel();
+ @Inject(method = "pickUpItems", at = @At("HEAD"), cancellable = true)
+private void blockforge$pickUpFiveKinds(PathfinderMob mob, Container source, CallbackInfo ci) {
+    ci.cancel();
 
-        Set<Item> takenKinds = new HashSet<>();
-        for (EquipmentSlot slot : blockforge$CARGO_SLOTS) {
-            ItemStack taken = blockforge$takeOneKind(source, takenKinds);
-            mob.setItemSlot(slot, taken);
-            if (!taken.isEmpty()) {
-                mob.setGuaranteedDrop(slot);
-                takenKinds.add(taken.getItem());
-            }
+    for (EquipmentSlot slot : blockforge$CARGO_SLOTS) {
+        ItemStack taken = blockforge$takeOneKind(source);   // 不再传排除集合
+        mob.setItemSlot(slot, taken);
+        if (!taken.isEmpty()) {
+            mob.setGuaranteedDrop(slot);
         }
-
-        source.setChanged();
-        this.clearMemoriesAfterMatchingTargetFound(mob);
     }
+
+    source.setChanged();
+    this.clearMemoriesAfterMatchingTargetFound(mob);
+}
 
     /**
      * 放货：5 个货槽依次放入目标箱子（合并同类堆叠 / 放进空槽位）。
      * 箱子装不下的部分留在身上，并保留当前目标稍后继续放，
      * 和原版"手里有剩余就 stopTargetingCurrentTarget"的节奏一致。
+     走到目标箱子后，只把该箱子原本就有的那几种物品放进去；不属于这个箱子的货留在身上（anyLeft = true → stopTargetingCurrentTarget），大脑下一轮会给它们找正确的箱子
      */
     @Inject(method = "putDownItem", at = @At("HEAD"), cancellable = true)
-    private void blockforge$putDownAllCargo(PathfinderMob mob, Container destination, CallbackInfo ci) {
-        ci.cancel();
+private void blockforge$putDownAllCargo(PathfinderMob mob, Container destination, CallbackInfo ci) {
+    ci.cancel();
 
-        boolean anyLeft = false;
-        for (EquipmentSlot slot : blockforge$CARGO_SLOTS) {
-            ItemStack left = blockforge$insertCargoStack(mob.getItemBySlot(slot), destination);
-            mob.setItemSlot(slot, left);
-            if (!left.isEmpty()) {
-                anyLeft = true;
-            }
+    // 空容器：保持原版行为，可以收任意物品（这时一次倒多种是预期内的）
+    boolean destEmpty = true;
+    for (ItemStack s : destination) {
+        if (!s.isEmpty()) { destEmpty = false; break; }
+    }
+
+    boolean anyLeft = false;
+    for (EquipmentSlot slot : blockforge$CARGO_SLOTS) {
+        ItemStack cargo = mob.getItemBySlot(slot);
+        if (cargo.isEmpty()) continue;
+
+        // 非空容器：只有容器里已经存在同种物品时，才允许放下这一槽
+        if (!destEmpty && !blockforge$containerHasMatching(destination, cargo)) {
+            anyLeft = true;   // 这槽留着，下一轮再找别的箱子
+            continue;
         }
 
-        destination.setChanged();
-        if (anyLeft) {
-            this.stopTargetingCurrentTarget(mob);
-        } else {
-            this.clearMemoriesAfterMatchingTargetFound(mob);
+        ItemStack left = blockforge$insertCargoStack(cargo, destination);
+        mob.setItemSlot(slot, left);
+        if (!left.isEmpty()) anyLeft = true;
+    }
+
+    destination.setChanged();
+    if (anyLeft) {
+        this.stopTargetingCurrentTarget(mob);
+    } else {
+        this.clearMemoriesAfterMatchingTargetFound(mob);
+    }
+}
+
+@Unique
+private static boolean blockforge$containerHasMatching(Container destination, ItemStack cargo) {
+    for (ItemStack s : destination) {
+        if (!s.isEmpty() && ItemStack.isSameItemSameComponents(s, cargo)) {
+            return true;
         }
     }
+    return false;
+}
 
     /**
      * 从源箱子里取"一种"物品：优先第一个物品类型不在排除集合里的非空槽位，
@@ -252,7 +273,7 @@ public abstract class TransportItemsBetweenContainersMixin {
         ItemStack result = ItemStack.EMPTY;
         for (int i = 0; i < source.getContainerSize(); i++) {
             ItemStack stack = source.getItem(i);
-            if (stack.isEmpty() || excludedKinds.contains(stack.getItem())) {
+            if (stack.isEmpty()) {
                 continue;
             }
             if (result.isEmpty()) {
