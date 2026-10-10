@@ -299,29 +299,35 @@ private static boolean blockforge$containerHasMatching(Container destination, It
      * 但修掉了原版在手里数量小于空位时把数量减成负数的写法，按实际移动量扣减。
      * 返回身上剩下的（箱子满了就是一整组原样返回）。
      */
-    @Unique
-    private static ItemStack blockforge$insertCargoStack(ItemStack cargo, Container destination) {
-        if (cargo.isEmpty()) {
-            return ItemStack.EMPTY;
+/**
+ * 从源箱子里取"一整组"物品：从第一个非空槽位开始拿，
+ * 并把同种（物品和组件都相同）的其余槽位并进来，直到达到该物品自身的堆叠上限。
+ * 不再排除已经拿过的物品类型，因此同一物品可以占多个货槽。
+ */
+@Unique
+private static ItemStack blockforge$takeOneKind(Container source) {
+    ItemStack result = ItemStack.EMPTY;
+    for (int i = 0; i < source.getContainerSize(); i++) {
+        ItemStack stack = source.getItem(i);
+        if (stack.isEmpty()) {
+            continue;
         }
-        ItemStack leftover = cargo.copy();
-        for (int i = 0; i < destination.getContainerSize() && !leftover.isEmpty(); i++) {
-            ItemStack slotStack = destination.getItem(i);
-            if (slotStack.isEmpty()) {
-                destination.setItem(i, leftover);
-                return ItemStack.EMPTY;
-            }
-            if (ItemStack.isSameItemSameComponents(leftover, slotStack)
-                    && slotStack.getCount() < slotStack.getMaxStackSize()) {
-                int room = Math.min(slotStack.getMaxStackSize() - slotStack.getCount(),
-                        leftover.getCount());
-                slotStack.grow(room);
-                destination.setItem(i, slotStack);
-                leftover.shrink(room);
+        if (result.isEmpty()) {
+            int cap = stack.getMaxStackSize();
+            result = source.removeItem(i, Math.min(stack.getCount(), Math.max(1, cap)));
+        } else if (result.getCount() < result.getMaxStackSize()
+                && ItemStack.isSameItemSameComponents(result, stack)) {
+            int take = Math.min(stack.getCount(), result.getMaxStackSize() - result.getCount());
+            if (take > 0) {
+                result.grow(source.removeItem(i, take).getCount());
             }
         }
-        return leftover;
+        if (!result.isEmpty() && result.getCount() >= result.getMaxStackSize()) {
+            break;
+        }
     }
+    return result;
+}
 
     // ------------------------------------------------------------------
     // 减卡顿：路径校验与占用检查的短时缓存
