@@ -1,2 +1,3 @@
-pluginManagement { repositories { maven { url = 'https://maven.fabricmc.net/' }; gradlePluginPortal(); mavenCentral() } }
+rootProject.name = 'copper-golem-sorting-boost'
 rootProject.name = 'blockforge-generated'
+rootProject.name = 'copper-golem-sorting-boost'
